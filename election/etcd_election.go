@@ -13,7 +13,6 @@ import (
 // EtcdLeaderElection is an implementation of LeaderElection based on etcd.
 type EtcdLeaderElection struct {
 	LeaderElection
-	client   *etcd.Client
 	session  *concurrency.Session
 	election *concurrency.Election
 }
@@ -29,7 +28,7 @@ func NewEtcdLeaderElection(client *etcd.Client, key string) (*EtcdLeaderElection
 	log.Info("Created etcd session")
 
 	election := concurrency.NewElection(session, key)
-	return &EtcdLeaderElection{client: client, session: session, election: election}, nil
+	return &EtcdLeaderElection{session: session, election: election}, nil
 }
 
 // Campaign initiates leader election which can be observed using the returned chan.

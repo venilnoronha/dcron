@@ -7,13 +7,19 @@ import (
 	"os/signal"
 	"syscall"
 
+	"dcron/config"
 	"dcron/election"
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/clientv3"
 )
 
-// electionKey is the key to be used while campaigning for leadership.
-const electionKey = "dcrond"
+const (
+	// electionKey is the key to be used while campaigning for leadership.
+	electionKey = "dcrond"
+
+	// cronConfigKey is the key to be used while accessing cron config.
+	cronConfigKey = "dcrond-config"
+)
 
 var (
 	// etcdHostFlag is the flag for obtaining etcd host address via the CLI.
@@ -36,21 +42,25 @@ var (
 
 	// campaignCancel is a func to be used to cancel the leadership campaign.
 	campaignCancel context.CancelFunc
+
+	// cronConfigService encapsulates logic for managing the cron config.
+	cronConfigService config.CronConfigService
 )
 
 func main() {
 	flag.Parse()
 
 	initEtcdClient()
+	initEtcdCronConfigService()
 	initLeaderElection()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sig
+		destroyHTTPServer()
 		destroyLeaderElection()
 		destroyEtcdClient()
-		destroyHTTPServer()
 		os.Exit(0)
 	}()
 
@@ -103,4 +113,8 @@ func destroyLeaderElection() {
 		log.Info("Campaign cancelled")
 	}
 	leaderElection.Close()
+}
+
+func initEtcdCronConfigService() {
+	cronConfigService = config.NewEtcdCronConfigService(client, cronConfigKey)
 }

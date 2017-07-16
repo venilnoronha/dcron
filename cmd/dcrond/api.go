@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,13 +13,15 @@ import (
 var server *http.Server
 
 func initHTTPServer(port int) {
-	http.HandleFunc("/jobs/list", listJobs)
+	server = &http.Server{Addr: fmt.Sprintf(":%d", port)}
+	http.HandleFunc("/list", list)
 
 	log.Info("Starting HTTP server on port ", port)
-	server = &http.Server{Addr: fmt.Sprintf(":%d", port)}
 	if err := server.ListenAndServe(); err != nil {
-		log.WithField("err", err).Error("Failed to start HTTP server")
-		os.Exit(1)
+		if err.Error() != "http: Server closed" {
+			log.WithField("err", err).Error("Failed to start HTTP server")
+			os.Exit(1)
+		}
 	}
 }
 
@@ -30,6 +33,13 @@ func destroyHTTPServer() {
 	log.Info("Completed HTTP server shutdown")
 }
 
-func listJobs(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "job listing")
+func list(w http.ResponseWriter, r *http.Request) {
+	conf, err := cronConfigService.Load()
+	if err != nil {
+		log.WithField("err", err).Error("Failed to load cron config")
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	log.WithField("conf", conf).Info("Loaded cron config")
+	json.NewEncoder(w).Encode(conf)
 }
