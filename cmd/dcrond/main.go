@@ -9,6 +9,7 @@ import (
 
 	"dcron/config"
 	"dcron/election"
+	"dcron/rest"
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/clientv3"
 )
@@ -45,6 +46,9 @@ var (
 
 	// cronConfigService encapsulates logic for managing the cron config.
 	cronConfigService config.CronConfigService
+
+	// restService represents the REST service.
+	restService rest.REST
 )
 
 func main() {
@@ -58,14 +62,14 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sig
-		destroyHTTPServer()
+		destroyRESTService()
 		destroyLeaderElection()
 		destroyEtcdClient()
 		os.Exit(0)
 	}()
 
 	go waitAndServe()
-	initHTTPServer(*portFlag)
+	initRESTService()
 }
 
 func waitAndServe() {
@@ -117,4 +121,21 @@ func destroyLeaderElection() {
 
 func initEtcdCronConfigService() {
 	cronConfigService = config.NewEtcdCronConfigService(client, cronConfigKey)
+}
+
+func initRESTService() {
+	restService = rest.NewRESTService(*portFlag, &cronConfigService)
+	log.Info("Starting REST service")
+	if err := restService.Init(); err != nil {
+		log.WithField("err", err).Error("Failed to start REST service")
+		os.Exit(1)
+	}
+}
+
+func destroyRESTService() {
+	log.Info("Shutting down REST service")
+	if err := restService.Destroy(); err != nil {
+		log.WithField("err", err).Error("Failed to destroy REST service")
+	}
+	log.Info("Completed REST service shutdown")
 }
