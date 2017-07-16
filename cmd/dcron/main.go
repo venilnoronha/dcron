@@ -1,166 +1,141 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
+	"context"
 	"flag"
-	"fmt"
-	"io/ioutil"
-	"math/rand"
-	"net/http"
 	"os"
-	"os/exec"
-	"time"
+	"os/signal"
+	"syscall"
 
 	"dcron/config"
+	"dcron/election"
+	"dcron/rest"
 	log "github.com/Sirupsen/logrus"
+	etcd "github.com/coreos/etcd/clientv3"
+)
+
+const (
+	// electionKey is the key to be used while campaigning for leadership.
+	electionKey = "dcrond"
+
+	// cronConfigKey is the key to be used while accessing cron config.
+	cronConfigKey = "dcrond-config"
 )
 
 var (
-	// hostFlag is the flag to provide dcrond address.
-	hostFlag = flag.String("H", "127.0.0.1:9090", "dcrond address")
+	// etcdHostFlag is the flag for obtaining etcd host address via the CLI.
+	etcdHostFlag = flag.String("H", "http://127.0.0.1:2379", "etcd host address")
 
-	// listFlag is the flag provided to list cron config.
-	listFlag = flag.Bool("l", false, "list cron config")
+	// etcdHostFlag is the flag for obtaining etcd host address via the CLI.
+	portFlag = flag.Int("P", 9090, "dcrond service port")
 
-	// editFlag is the flag provided to edit cron config.
-	editFlag = flag.Bool("e", false, "edit cron config")
+	// client is the etcd client.
+	client *etcd.Client
 
-	// baseAddr is the base address of dcrond.
-	baseAddr string
+	// leaderElection encapsulates logic for managing leadership.
+	leaderElection election.LeaderElection
 
-	// listUrl is the list API url.
-	listUrl string
+	// campaignCh is the chan that's notified on acquiring leadership.
+	campaignCh chan struct{}
 
-	// editUrl is the edit API url.
-	editUrl string
+	// isLeader is set to true on acquiring leadership.
+	isLeader bool = false
+
+	// campaignCancel is a func to be used to cancel the leadership campaign.
+	campaignCancel context.CancelFunc
+
+	// cronConfigService encapsulates logic for managing the cron config.
+	cronConfigService config.CronConfigService
+
+	// restService represents the REST service.
+	restService rest.REST
 )
 
 func main() {
 	flag.Parse()
 
-	if !*listFlag && !*editFlag {
-		flag.Usage()
-		os.Exit(1)
-	} else if *listFlag && *editFlag {
-		flag.Usage()
+	initEtcdClient()
+	initEtcdCronConfigService()
+	initLeaderElection()
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sig
+		destroyRESTService()
+		destroyLeaderElection()
+		destroyEtcdClient()
+		os.Exit(0)
+	}()
+
+	go waitAndServe()
+	initRESTService()
+}
+
+func waitAndServe() {
+	campaignCh, campaignCancel = leaderElection.Campaign()
+	<-campaignCh
+	isLeader = true
+
+	log.Info("Going to serve")
+	// TODO: Add cron logic
+	log.Info("Finished serving")
+}
+
+func initEtcdClient() {
+	log.Info("Connecting to etcd host ", *etcdHostFlag)
+	var err error
+	client, err = etcd.NewFromURL(*etcdHostFlag)
+	if err != nil {
+		log.WithField("err", err).Fatal("Couldn't create etcd client, exiting")
 		os.Exit(1)
 	}
+	log.Info("Created etcd client")
+}
 
-	baseAddr = fmt.Sprintf("http://%s", *hostFlag)
-	listUrl = baseAddr + "/list"
-	editUrl = baseAddr + "/edit"
+func destroyEtcdClient() {
+	log.Info("Closing etcd client")
+	client.Close()
+	log.Info("Closed etcd client")
+}
 
-	if *listFlag {
-		list()
-	} else if *editFlag {
-		edit()
+func initLeaderElection() {
+	var err error
+	leaderElection, err = election.NewEtcdLeaderElection(client, electionKey)
+	if err != nil {
+		log.WithField("err", err).Fatal("Failed to init etcd leader election, exiting")
+		os.Exit(1)
 	}
 }
 
-func fetch() (*config.CronConfig, error) {
-	req, err := http.NewRequest("GET", listUrl, nil)
-	if err != nil {
-		log.WithField("err", err).Error("Failed to create fetch request")
-		return nil, errors.New("Failed to create list request")
+func destroyLeaderElection() {
+	if isLeader {
+		leaderElection.Resign()
+	} else {
+		log.Info("Cancelling campaign")
+		campaignCancel()
+		log.Info("Campaign cancelled")
 	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.WithField("err", err).Error("Failed to connect to dcrond")
-		return nil, errors.New("Failed to connect to dcrond")
-	}
-	defer resp.Body.Close()
-
-	var cronConf config.CronConfig
-	if err := json.NewDecoder(resp.Body).Decode(&cronConf); err != nil {
-		log.WithField("err", err).Error("Failed to decode dcrond response")
-		return nil, errors.New("Failed to decode dcrond response")
-	}
-	return &cronConf, nil
+	leaderElection.Close()
 }
 
-func list() {
-	conf, err := fetch()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
-	}
-	fmt.Print(conf.Config)
+func initEtcdCronConfigService() {
+	cronConfigService = config.NewEtcdCronConfigService(client, cronConfigKey)
 }
 
-func edit() {
-	// Fetch config
-	conf, err := fetch()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
+func initRESTService() {
+	restService = rest.NewRESTService(*portFlag, &cronConfigService)
+	log.Info("Starting REST service")
+	if err := restService.Init(); err != nil {
+		log.WithField("err", err).Error("Failed to start REST service")
 		os.Exit(1)
 	}
+}
 
-	// Write config to temp file
-	log.Info("Loading config to temp file")
-	rand.Seed(time.Now().UTC().UnixNano())
-	tmpFilePath := fmt.Sprintf("/tmp/dcron-config-%d.tmp", rand.Int())
-	ioutil.WriteFile(tmpFilePath, []byte(conf.Config), 0644)
-	log.Info("Loaded config to temp file")
-
-	// Open temp file in vi
-	log.Info("Opening editor")
-	cmd := exec.Command("vi", tmpFilePath)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		log.WithField("err", err).Error("Failed to open editor")
-		fmt.Fprintln(os.Stderr, "Failed to open editor")
-		os.Exit(1)
+func destroyRESTService() {
+	log.Info("Shutting down REST service")
+	if err := restService.Destroy(); err != nil {
+		log.WithField("err", err).Error("Failed to destroy REST service")
 	}
-	if err := cmd.Wait(); err != nil {
-		log.WithField("err", err).Error("Failed to wait for editor")
-		fmt.Fprintln(os.Stderr, "Failed to wait for editor")
-		os.Exit(1)
-	}
-	log.Info("Returned from editor")
-
-	// Read updated content from temp file
-	content, err := ioutil.ReadFile(tmpFilePath)
-	if err != nil {
-		log.WithField("err", err).Error("Failed to read temp file")
-		fmt.Fprintln(os.Stderr, "Failed to read temp file")
-		os.Exit(1)
-	}
-
-	// Save new config
-	conf.Config = string(content)
-	jsonStr, err := json.Marshal(conf)
-	if err != nil {
-		log.WithField("err", err).Error("Failed to save config")
-		fmt.Fprintln(os.Stderr, "Failed to save config")
-		os.Exit(1)
-	}
-
-	req, err := http.NewRequest("POST", editUrl, bytes.NewBuffer(jsonStr))
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	defer resp.Body.Close()
-	if err != nil {
-		log.WithField("err", err).Error("Failed to save config")
-		fmt.Fprintln(os.Stderr, "Failed to save config")
-		os.Exit(1)
-	}
-
-	// Validate response
-	if resp.StatusCode != http.StatusOK {
-		log.WithField("resp", resp).Error("Failed to save config")
-		fmt.Fprintln(os.Stderr, "Failed to save config due to "+resp.Status+"!")
-		os.Exit(1)
-	}
-
-	// Remove temp file
-	if err = os.Remove(tmpFilePath); err != nil {
-		log.WithField("err", err).Warning("Failed to remove temp file, continuing..")
-	}
-	fmt.Println("Config saved successfully!")
+	log.Info("Completed REST service shutdown")
 }
