@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"dcron/election"
 	log "github.com/Sirupsen/logrus"
@@ -19,6 +18,9 @@ const electionKey = "dcrond"
 var (
 	// etcdHostFlag is the flag for obtaining etcd host address via the CLI.
 	etcdHostFlag = flag.String("H", "http://127.0.0.1:2379", "etcd host address")
+
+	// etcdHostFlag is the flag for obtaining etcd host address via the CLI.
+	portFlag = flag.Int("P", 9090, "dcrond service port")
 
 	// client is the etcd client.
 	client *etcd.Client
@@ -48,10 +50,12 @@ func main() {
 		<-sig
 		destroyLeaderElection()
 		destroyEtcdClient()
+		destroyHTTPServer()
 		os.Exit(0)
 	}()
 
-	waitAndServe()
+	go waitAndServe()
+	initHTTPServer(*portFlag)
 }
 
 func waitAndServe() {
@@ -60,7 +64,7 @@ func waitAndServe() {
 	isLeader = true
 
 	log.Info("Going to serve")
-	time.Sleep(60 * time.Second)
+	// TODO: Add cron logic
 	log.Info("Finished serving")
 }
 
