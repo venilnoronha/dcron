@@ -62,6 +62,7 @@ func (s *SimpleCronService) load() {
 			}
 			log.WithFields(log.Fields{"job": *job, "out": string(out)}).Info("Finished executing job")
 		})
+		log.WithField("job", *job).Info("Job was set up")
 	}
 	s.cron.Start()
 	log.Info("Cron setup complete")
