@@ -20,7 +20,7 @@ func NewRESTService(port int, cronService *config.CronConfigService) *RESTServic
 	server := &http.Server{Addr: fmt.Sprintf(":%d", port)}
 	restService := RESTService{port: port, server: server, cronService: cronService}
 	http.HandleFunc("/list", restService.list)
-	http.HandleFunc("/edit", restService.edit)
+	http.HandleFunc("/update", restService.update)
 	return &restService
 }
 
@@ -54,7 +54,7 @@ func (s *RESTService) list(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *RESTService) edit(w http.ResponseWriter, r *http.Request) {
+func (s *RESTService) update(w http.ResponseWriter, r *http.Request) {
 	var conf config.CronConfig
 	err := json.NewDecoder(r.Body).Decode(&conf)
 	if err != nil {

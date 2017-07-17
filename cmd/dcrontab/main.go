@@ -34,8 +34,8 @@ var (
 	// listUrl is the list API url.
 	listUrl string
 
-	// editUrl is the edit API url.
-	editUrl string
+	// updateUrl is the update API url.
+	updateUrl string
 )
 
 func main() {
@@ -51,7 +51,7 @@ func main() {
 
 	baseAddr = fmt.Sprintf("http://%s", *hostFlag)
 	listUrl = baseAddr + "/list"
-	editUrl = baseAddr + "/edit"
+	updateUrl = baseAddr + "/update"
 
 	if *listFlag {
 		list()
@@ -151,7 +151,7 @@ func edit() {
 		os.Exit(1)
 	}
 
-	req, err := http.NewRequest("POST", editUrl, bytes.NewBuffer(jsonStr))
+	req, err := http.NewRequest("POST", updateUrl, bytes.NewBuffer(jsonStr))
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	defer resp.Body.Close()
