@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"dcron/config"
+	"dcron/cron"
 	log "github.com/Sirupsen/logrus"
 )
 
@@ -132,8 +133,17 @@ func edit() {
 		os.Exit(1)
 	}
 
+	// Validate temp file
+	contentStr := string(content)
+	_, err = cron.MakeJobsFromString(contentStr)
+	if err != nil {
+		log.WithField("err", err).Error("Failed to parse config file")
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+
 	// Save new config
-	conf.Config = string(content)
+	conf.Config = contentStr
 	jsonStr, err := json.Marshal(conf)
 	if err != nil {
 		log.WithField("err", err).Error("Failed to save config")
