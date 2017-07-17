@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"errors"
 	"strings"
-	"time"
 
 	cr "gopkg.in/robfig/cron.v2"
 )
@@ -20,22 +19,18 @@ type CronService interface {
 
 // CronJob represents a simple cron job.
 type CronJob struct {
-	Schedule cr.Schedule
-	Command  string
-}
-
-func (j *CronJob) NextAt() time.Time {
-	return j.Schedule.Next(time.Now())
+	Expression string
+	Command    string
 }
 
 func NewJobFromString(job string) (*CronJob, error) {
 	tokens := strings.SplitN(job, " ", 6)
 	cronExpr := strings.Join(tokens[0:len(tokens)-1], " ")
-	schedule, err := cr.Parse(cronExpr)
+	_, err := cr.Parse(cronExpr)
 	if err != nil {
 		return nil, errors.New("Failed to parse cron entry " + job)
 	}
-	return &CronJob{Schedule: schedule, Command: tokens[5]}, nil
+	return &CronJob{Expression: cronExpr, Command: tokens[5]}, nil
 }
 
 func MakeJobsFromString(jobs string) (*[]*CronJob, error) {
