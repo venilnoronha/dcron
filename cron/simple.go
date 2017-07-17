@@ -44,5 +44,7 @@ func (s *SimpleCronService) load() {
 	}
 
 	jobs, _ := MakeJobsFromString(conf.Config)
-	log.Info(jobs)
+	for _, job := range *jobs {
+		log.Info(job.NextAt(), job.Command)
+	}
 }

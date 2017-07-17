@@ -3,9 +3,10 @@ package cron
 import (
 	"bufio"
 	"errors"
-	"strconv"
 	"strings"
 	"time"
+
+	cr "gopkg.in/robfig/cron.v2"
 )
 
 // CronService encapsulates logic for monitoring and executing cron jobs.
@@ -19,26 +20,22 @@ type CronService interface {
 
 // CronJob represents a simple cron job.
 type CronJob struct {
-	Minute  string
-	Hour    string
-	Day     string
-	Month   string
-	Week    string
-	Command string
+	Schedule cr.Schedule
+	Command  string
 }
 
 func (j *CronJob) NextAt() time.Time {
-	// TODO
-	return time.Now()
+	return j.Schedule.Next(time.Now())
 }
 
 func NewJobFromString(job string) (*CronJob, error) {
-	ts := strings.SplitN(job, " ", 6)
-	if !isValidToken(ts[0]) || !isValidToken(ts[1]) || !isValidToken(ts[2]) || !isValidToken(ts[3]) || !isValidToken(ts[4]) {
-		return nil, errors.New("Failed to parse cron job string for line " + job)
+	tokens := strings.SplitN(job, " ", 6)
+	cronExpr := strings.Join(tokens[0:len(tokens)-1], " ")
+	schedule, err := cr.Parse(cronExpr)
+	if err != nil {
+		return nil, errors.New("Failed to parse cron entry " + job)
 	}
-	// TODO: add more validation
-	return &CronJob{Minute: ts[0], Hour: ts[1], Day: ts[2], Month: ts[3], Week: ts[4], Command: ts[5]}, nil
+	return &CronJob{Schedule: schedule, Command: tokens[5]}, nil
 }
 
 func MakeJobsFromString(jobs string) (*[]*CronJob, error) {
@@ -53,9 +50,4 @@ func MakeJobsFromString(jobs string) (*[]*CronJob, error) {
 		cronJobs = append(cronJobs, job)
 	}
 	return &cronJobs, nil
-}
-
-func isValidToken(token string) bool {
-	_, err := strconv.Atoi(token)
-	return token == "*" || err == nil
 }
