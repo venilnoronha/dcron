@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"dcron/config"
+	"dcron/cron"
 	"dcron/election"
 	"dcron/rest"
 	log "github.com/Sirupsen/logrus"
@@ -49,6 +50,9 @@ var (
 
 	// restService represents the REST service.
 	restService rest.REST
+
+	// cronService represents the cron service.
+	cronService cron.CronService
 )
 
 func main() {
@@ -68,17 +72,18 @@ func main() {
 		os.Exit(0)
 	}()
 
-	go waitAndServe()
+	go waitAndServeCron()
 	initRESTService()
 }
 
-func waitAndServe() {
+func waitAndServeCron() {
 	campaignCh, campaignCancel = leaderElection.Campaign()
 	<-campaignCh
 	isLeader = true
 
 	log.Info("Going to serve")
-	// TODO: Add cron logic
+	cronService = cron.NewSimpleCronService(&cronConfigService)
+	cronService.Init()
 	log.Info("Finished serving")
 }
 

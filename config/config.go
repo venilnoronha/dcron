@@ -13,4 +13,7 @@ type CronConfigService interface {
 
 	// Save saves the new cron configuration.
 	Save(*CronConfig) error
+
+	// Watch returns a chan that emits config updates.
+	Watch() chan struct{}
 }

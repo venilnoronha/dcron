@@ -51,3 +51,15 @@ func (c *EtcdCronConfigService) Save(conf *CronConfig) error {
 	log.Info("Saved cron config to etcd")
 	return nil
 }
+
+func (c *EtcdCronConfigService) Watch() chan struct{} {
+	ch := make(chan struct{})
+	watchCh := c.client.Watch(context.TODO(), c.key)
+	go func() {
+		for {
+			<-watchCh
+			ch <- struct{}{}
+		}
+	}()
+	return ch
+}
