@@ -53,17 +53,21 @@ func (s *SimpleCronService) load() {
 	s.cron = cr.New()
 	jobs, _ := MakeJobsFromString(conf.Config)
 	for _, job := range *jobs {
-		s.cron.AddFunc(job.Expression, func() {
-			log.WithField("job", *job).Info("Executing job")
-			out, err := exec.Command("sh", "-c", job.Command).CombinedOutput()
-			if err != nil {
-				log.WithFields(log.Fields{"job": *job, "err": err, "out": string(out)}).Error("Failed to execute job")
-				return
-			}
-			log.WithFields(log.Fields{"job": *job, "out": string(out)}).Info("Finished executing job")
-		})
-		log.WithField("job", *job).Info("Job was set up")
+		s.addJob(job)
 	}
 	s.cron.Start()
 	log.Info("Cron setup complete")
+}
+
+func (s *SimpleCronService) addJob(job *CronJob) {
+	s.cron.AddFunc(job.Expression, func() {
+		log.WithField("job", *job).Info("Executing job")
+		out, err := exec.Command("sh", "-c", job.Command).CombinedOutput()
+		if err != nil {
+			log.WithFields(log.Fields{"job": *job, "err": err, "out": string(out)}).Error("Failed to execute job")
+			return
+		}
+		log.WithFields(log.Fields{"job": *job, "out": string(out)}).Info("Finished executing job")
+	})
+	log.WithField("job", *job).Info("Job was set up")
 }
